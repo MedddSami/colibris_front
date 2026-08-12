@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------------------------------
+  # Frontend Application
+  # ----------------------------------------------------------------------------
+  frontend:
+    build:
+      context: . # Assumes your frontend Dockerfile is in the root of this folder
+    container_name: colibris_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://localhost:5001 # Ensure this matches your API container/proxy setup
+    depends_on:
+      - app
+    networks:
+      - colibris_network
+
+  # ----------------------------------------------------------------------------
+  # Backend API Application
+  # ----------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: colibris_backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5001}:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - SESSION_SECRET=${SESSION_SECRET}
+      - JWT_SECRET=${JWT_SECRET}
+      - MONGO_URI_REGULAR=mongodb://mongodb:27017/regular_auth
+      - MONGO_URI_OAUTH=mongodb://mongodb:27017/oauth2_users
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL}
+      - RegistrationUrl=${RegistrationUrl}
+      - BASE_URL=${BASE_URL}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASS=${EMAIL_PASS}
+    volumes:
+      # Persist user uploaded files (images, refills, packs) so they are preserved across container updates/rebuilds
+      - uploads_volume:/usr/src/app/uploads
+      - temp_volume:/usr/src/app/temp
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - colibris_network
+
+  # ----------------------------------------------------------------------------
+  # MongoDB Database Service
+  # ----------------------------------------------------------------------------
+  mongodb:
+    image: mongo:6.0-jammy
+    container_name: colibris_database
+    restart: unless-stopped
+    ports:
+      # Exposes mongo port only to local machine for debugging/management.
+      # Remove or comment out this mapping for high-security production servers.
+      - "127.0.0.1:27017:27017"
+    volumes:
+      # Persist all MongoDB data on the host machine
+      - mongodb_data:/data/db
+    networks:
+      - colibris_network
+    healthcheck:
+      # Check MongoDB readiness before starting the app container
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# ------------------------------------------------------------------------------
+# Volumes & Networks Definitions
+# ------------------------------------------------------------------------------
+volumes:
+  mongodb_data:
+    driver: local
+  uploads_volume:
+    driver: local
+  temp_volume:
+    driver: local
+
+networks:
+  colibris_network:
+    driver: bridge
